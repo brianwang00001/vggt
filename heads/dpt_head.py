@@ -43,13 +43,13 @@ class DPTHead(nn.Module):
     def __init__(
         self,
         dim_in: int,
+        intermediate_layer_idx: List[int],
         patch_size: int = 14,
         output_dim: int = 4,
         activation: str = "inv_log",
         conf_activation: str = "expp1",
         features: int = 256,
         out_channels: List[int] = [256, 512, 1024, 1024],
-        intermediate_layer_idx: List[int] = [4, 11, 17, 23],
         pos_embed: bool = True,
         feature_only: bool = False,
         down_ratio: int = 1,
@@ -184,7 +184,7 @@ class DPTHead(nn.Module):
 
     def _forward_impl(
         self,
-        aggregated_tokens_list: List[torch.Tensor],
+        aggregated_tokens_dict: Dict[int, torch.Tensor],
         images: torch.Tensor,
         patch_start_idx: int,
         frames_start_idx: int = None,
@@ -196,7 +196,7 @@ class DPTHead(nn.Module):
         This method processes a specific chunk of frames from the sequence.
 
         Args:
-            aggregated_tokens_list (List[Tensor]): List of token tensors from different transformer layers.
+            aggregated_tokens_list (Dict[int, Tensor]): Dictionary of token tensors from different transformer layers.
             images (Tensor): Input images with shape [B, S, 3, H, W].
             patch_start_idx (int): Starting index for patch tokens.
             frames_start_idx (int, optional): Starting index for frames to process.
@@ -216,7 +216,7 @@ class DPTHead(nn.Module):
         dpt_idx = 0
 
         for layer_idx in self.intermediate_layer_idx:
-            x = aggregated_tokens_list[layer_idx][:, :, patch_start_idx:]
+            x = aggregated_tokens_dict[layer_idx][:, :, patch_start_idx:]
 
             # Select frames if processing a chunk
             if frames_start_idx is not None and frames_end_idx is not None:
@@ -226,7 +226,7 @@ class DPTHead(nn.Module):
 
             x = self.norm(x)
 
-            x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
+            x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w)).contiguous()
 
             x = self.projects[dpt_idx](x)
             if self.pos_embed:
@@ -268,7 +268,7 @@ class DPTHead(nn.Module):
         pos_embed = create_uv_grid(patch_w, patch_h, aspect_ratio=W / H, dtype=x.dtype, device=x.device)
         pos_embed = position_grid_to_embed(pos_embed, x.shape[1])
         pos_embed = pos_embed * ratio
-        pos_embed = pos_embed.permute(2, 0, 1)[None].expand(x.shape[0], -1, -1, -1)
+        pos_embed = pos_embed.permute(2, 0, 1)[None].expand(x.shape[0], -1, -1, -1).contiguous()
         return x + pos_embed
 
     def scratch_forward(self, features: List[torch.Tensor]) -> torch.Tensor:

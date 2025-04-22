@@ -18,6 +18,7 @@ class TrackHead(nn.Module):
     def __init__(
         self,
         dim_in,
+        intermediate_layer_idx,
         patch_size=14,
         features=128,
         iters=4,
@@ -49,6 +50,7 @@ class TrackHead(nn.Module):
         # Processes tokens into feature maps for tracking
         self.feature_extractor = DPTHead(
             dim_in=dim_in,
+            intermediate_layer_idx=intermediate_layer_idx,
             patch_size=patch_size,
             features=features,
             feature_only=True,  # Only output features, no activation

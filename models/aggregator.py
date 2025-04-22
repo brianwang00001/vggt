@@ -49,6 +49,7 @@ class Aggregator(nn.Module):
 
     def __init__(
         self,
+        intermediate_layer_idx: List[int],
         img_size=518,
         patch_size=14,
         embed_dim=1024,
@@ -68,8 +69,11 @@ class Aggregator(nn.Module):
         init_values=0.01,
     ):
         super().__init__()
+        self.intermediate_layer_idx = intermediate_layer_idx
 
-        self.__build_patch_embed__(patch_embed, img_size, patch_size, num_register_tokens, embed_dim=embed_dim)
+        self.__build_patch_embed__(
+            patch_embed, img_size, patch_size, num_register_tokens, embed_dim=embed_dim
+        )
 
         # Initialize rotary position embedding if frequency > 0
         self.rope = RotaryPositionEmbedding2D(frequency=rope_freq) if rope_freq > 0 else None
@@ -116,7 +120,9 @@ class Aggregator(nn.Module):
 
         # Validate that depth is divisible by aa_block_size
         if self.depth % self.aa_block_size != 0:
-            raise ValueError(f"depth ({depth}) must be divisible by aa_block_size ({aa_block_size})")
+            raise ValueError(
+                f"depth ({depth}) must be divisible by aa_block_size ({aa_block_size})"
+            )
 
         self.aa_block_num = self.depth // self.aa_block_size
 
@@ -161,7 +167,9 @@ class Aggregator(nn.Module):
         """
 
         if "conv" in patch_embed:
-            self.patch_embed = PatchEmbed(img_size=img_size, patch_size=patch_size, in_chans=3, embed_dim=embed_dim)
+            self.patch_embed = PatchEmbed(
+                img_size=img_size, patch_size=patch_size, in_chans=3, embed_dim=embed_dim
+            )
         else:
             vit_models = {
                 "dinov2_vitl14_reg": vit_large,
@@ -224,13 +232,17 @@ class Aggregator(nn.Module):
 
         pos = None
         if self.rope is not None:
-            pos = self.position_getter(B * S, H // self.patch_size, W // self.patch_size, device=images.device)
+            pos = self.position_getter(
+                B * S, H // self.patch_size, W // self.patch_size, device=images.device
+            )
 
         if self.patch_start_idx > 0:
             # do not use position embedding for special tokens (camera and register tokens)
             # so set pos to 0 for the special tokens
             pos = pos + 1
-            pos_special = torch.zeros(B * S, self.patch_start_idx, 2).to(images.device).to(pos.dtype)
+            pos_special = (
+                torch.zeros(B * S, self.patch_start_idx, 2).to(images.device).to(pos.dtype)
+            )
             pos = torch.cat([pos_special, pos], dim=1)
 
         # update P because we added special tokens
@@ -238,9 +250,11 @@ class Aggregator(nn.Module):
 
         frame_idx = 0
         global_idx = 0
-        output_list = []
 
-        for _ in range(self.aa_block_num):
+        # add: change this from list to dict, only keep the intermediate_layer_idx
+        output_dict = {}
+
+        for layer_idx in range(self.aa_block_num):
             for attn_type in self.aa_order:
                 if attn_type == "frame":
                     tokens, frame_idx, frame_intermediates = self._process_frame_attention(
@@ -252,16 +266,18 @@ class Aggregator(nn.Module):
                     )
                 else:
                     raise ValueError(f"Unknown attention type: {attn_type}")
-
-            for i in range(len(frame_intermediates)):
-                # concat frame and global intermediates, [B x S x P x 2C]
-                concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
-                output_list.append(concat_inter)
+            if layer_idx in self.intermediate_layer_idx:
+                for i in range(len(frame_intermediates)):
+                    # concat frame and global intermediates, [B x S x P x 2C]
+                    concat_inter = torch.cat(
+                        [frame_intermediates[i], global_intermediates[i]], dim=-1
+                    )
+                    output_dict[layer_idx] = concat_inter
 
         del concat_inter
         del frame_intermediates
         del global_intermediates
-        return output_list, self.patch_start_idx
+        return output_dict, self.patch_start_idx
 
     def _process_frame_attention(self, tokens, B, S, P, C, frame_idx, pos=None):
         """

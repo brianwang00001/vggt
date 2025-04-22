@@ -80,12 +80,12 @@ class CameraHead(nn.Module):
             drop=0,
         )
 
-    def forward(self, aggregated_tokens_list: list, num_iterations: int = 4) -> list:
+    def forward(self, aggregated_tokens_dict: dict, num_iterations: int = 4) -> list:
         """
         Forward pass to predict camera parameters.
 
         Args:
-            aggregated_tokens_list (list): List of token tensors from the network;
+            aggregated_tokens_dict (dict): Dictionary of token tensors from the network;
                 the last tensor is used for prediction.
             num_iterations (int, optional): Number of iterative refinement steps. Defaults to 4.
 
@@ -93,7 +93,8 @@ class CameraHead(nn.Module):
             list: A list of predicted camera encodings (post-activation) from each iteration.
         """
         # Use tokens from the last block for camera prediction.
-        tokens = aggregated_tokens_list[-1]
+        last_idx = max(aggregated_tokens_dict.keys())
+        tokens = aggregated_tokens_dict[last_idx]
 
         # Extract the camera tokens
         pose_tokens = tokens[:, :, 0]
