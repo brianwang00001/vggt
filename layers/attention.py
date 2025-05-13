@@ -7,10 +7,7 @@
 #   https://github.com/facebookresearch/dino/blob/master/vision_transformer.py
 #   https://github.com/rwightman/pytorch-image-models/tree/master/timm/models/vision_transformer.py
 
-import logging
-import os
-import warnings
-
+import torch 
 from torch import Tensor
 from torch import nn
 import torch.nn.functional as F
@@ -47,7 +44,21 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.rope = rope
 
-    def forward(self, x: Tensor, pos=None) -> Tensor:
+        # add: for modifying the module later
+        self.init_params = {
+            "dim": dim,
+            "num_heads": num_heads,
+            "qkv_bias": qkv_bias,
+            "proj_bias": proj_bias,
+            "attn_drop": attn_drop,
+            "proj_drop": proj_drop,
+            "norm_layer": norm_layer,
+            "qk_norm": qk_norm,
+            "fused_attn": fused_attn,
+            "rope": rope,
+        }
+
+    def forward(self, x: Tensor, pos=None, **kwargs) -> Tensor:
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)

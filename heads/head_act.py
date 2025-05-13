@@ -29,6 +29,9 @@ def activate_pose(pred_pose_enc, trans_act="linear", quat_act="linear", fl_act="
     T = base_pose_act(T, trans_act)
     quat = base_pose_act(quat, quat_act)
     fl = base_pose_act(fl, fl_act)  # or fov
+    
+    # Add: normalize quaternion
+    quat = quat / quat.norm(dim=-1, keepdim=True)
 
     pred_pose_enc = torch.cat([T, quat, fl], dim=-1)
 

@@ -78,9 +78,9 @@ class Block(nn.Module):
 
         self.sample_drop_ratio = drop_path
 
-    def forward(self, x: Tensor, pos=None) -> Tensor:
-        def attn_residual_func(x: Tensor, pos=None) -> Tensor:
-            return self.ls1(self.attn(self.norm1(x), pos=pos))
+    def forward(self, x: Tensor, pos=None, **attn_kwargs) -> Tensor:
+        def attn_residual_func(x: Tensor, pos=None, **attn_kwargs) -> Tensor:
+            return self.ls1(self.attn(self.norm1(x), pos=pos, **attn_kwargs))
 
         def ffn_residual_func(x: Tensor) -> Tensor:
             return self.ls2(self.mlp(self.norm2(x)))
@@ -92,17 +92,19 @@ class Block(nn.Module):
                 pos=pos,
                 residual_func=attn_residual_func,
                 sample_drop_ratio=self.sample_drop_ratio,
+                **attn_kwargs,
             )
             x = drop_add_residual_stochastic_depth(
                 x,
                 residual_func=ffn_residual_func,
                 sample_drop_ratio=self.sample_drop_ratio,
+                **attn_kwargs,
             )
         elif self.training and self.sample_drop_ratio > 0.0:
-            x = x + self.drop_path1(attn_residual_func(x, pos=pos))
+            x = x + self.drop_path1(attn_residual_func(x, pos=pos, **attn_kwargs))
             x = x + self.drop_path1(ffn_residual_func(x))  # FIXME: drop_path2
         else:
-            x = x + attn_residual_func(x, pos=pos)
+            x = x + attn_residual_func(x, pos=pos, **attn_kwargs)
             x = x + ffn_residual_func(x)
         return x
 
@@ -112,6 +114,7 @@ def drop_add_residual_stochastic_depth(
     residual_func: Callable[[Tensor], Tensor],
     sample_drop_ratio: float = 0.0,
     pos=None,
+    **residual_func_kwargs,
 ) -> Tensor:
     # 1) extract subset using permutation
     b, n, d = x.shape
@@ -123,9 +126,9 @@ def drop_add_residual_stochastic_depth(
     if pos is not None:
         # if necessary, apply rope to the subset
         pos = pos[brange]
-        residual = residual_func(x_subset, pos=pos)
+        residual = residual_func(x_subset, pos=pos, **residual_func_kwargs)
     else:
-        residual = residual_func(x_subset)
+        residual = residual_func(x_subset, **residual_func_kwargs)
 
     x_flat = x.flatten(1)
     residual = residual.flatten(1)
@@ -133,7 +136,9 @@ def drop_add_residual_stochastic_depth(
     residual_scale_factor = b / sample_subset_size
 
     # 3) add the residual
-    x_plus_residual = torch.index_add(x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor)
+    x_plus_residual = torch.index_add(
+        x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor
+    )
     return x_plus_residual.view_as(x)
 
 
@@ -149,10 +154,16 @@ def add_residual(x, brange, residual, residual_scale_factor, scaling_vector=None
     if scaling_vector is None:
         x_flat = x.flatten(1)
         residual = residual.flatten(1)
-        x_plus_residual = torch.index_add(x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor)
+        x_plus_residual = torch.index_add(
+            x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor
+        )
     else:
         x_plus_residual = scaled_index_add(
-            x, brange, residual.to(dtype=x.dtype), scaling=scaling_vector, alpha=residual_scale_factor
+            x,
+            brange,
+            residual.to(dtype=x.dtype),
+            scaling=scaling_vector,
+            alpha=residual_scale_factor,
         )
     return x_plus_residual
 
@@ -164,7 +175,9 @@ def get_attn_bias_and_cat(x_list, branges=None):
     """
     this will perform the index select, cat the tensors, and provide the attn_bias from cache
     """
-    batch_sizes = [b.shape[0] for b in branges] if branges is not None else [x.shape[0] for x in x_list]
+    batch_sizes = (
+        [b.shape[0] for b in branges] if branges is not None else [x.shape[0] for x in x_list]
+    )
     all_shapes = tuple((b, x.shape[1]) for b, x in zip(batch_sizes, x_list))
     if all_shapes not in attn_bias_cache.keys():
         seqlens = []
@@ -176,7 +189,9 @@ def get_attn_bias_and_cat(x_list, branges=None):
         attn_bias_cache[all_shapes] = attn_bias
 
     if branges is not None:
-        cat_tensors = index_select_cat([x.flatten(1) for x in x_list], branges).view(1, -1, x_list[0].shape[-1])
+        cat_tensors = index_select_cat([x.flatten(1) for x in x_list], branges).view(
+            1, -1, x_list[0].shape[-1]
+        )
     else:
         tensors_bs1 = tuple(x.reshape([1, -1, *x.shape[2:]]) for x in x_list)
         cat_tensors = torch.cat(tensors_bs1, dim=1)
@@ -202,8 +217,12 @@ def drop_add_residual_stochastic_depth_list(
     residual_list = attn_bias.split(residual_func(x_cat, attn_bias=attn_bias))  # type: ignore
 
     outputs = []
-    for x, brange, residual, residual_scale_factor in zip(x_list, branges, residual_list, residual_scale_factors):
-        outputs.append(add_residual(x, brange, residual, residual_scale_factor, scaling_vector).view_as(x))
+    for x, brange, residual, residual_scale_factor in zip(
+        x_list, branges, residual_list, residual_scale_factors
+    ):
+        outputs.append(
+            add_residual(x, brange, residual, residual_scale_factor, scaling_vector).view_as(x)
+        )
     return outputs
 
 

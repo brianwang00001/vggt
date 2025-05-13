@@ -104,8 +104,8 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
                 pts3d, pts3d_conf = self.point_head(
                     aggregated_tokens_list, images=images, patch_start_idx=patch_start_idx
                 )
-                predictions["world_points"] = pts3d
-                predictions["world_points_conf"] = pts3d_conf
+                predictions["pts3d"] = pts3d
+                predictions["pts3d_conf"] = pts3d_conf
 
         if self.track_head is not None and query_points is not None:
             track_list, vis, conf = self.track_head(

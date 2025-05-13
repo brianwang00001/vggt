@@ -149,6 +149,28 @@ class Aggregator(nn.Module):
                 persistent=False,
             )
 
+        # add: save init params for modifying aggregator
+        self.init_params = {
+            "intermediate_layer_idx": intermediate_layer_idx,
+            "img_size": img_size,
+            "patch_size": patch_size,
+            "embed_dim": embed_dim,
+            "depth": depth,
+            "num_heads": num_heads,
+            "mlp_ratio": mlp_ratio,
+            "num_register_tokens": num_register_tokens,
+            "block_fn": block_fn,
+            "qkv_bias": qkv_bias,
+            "proj_bias": proj_bias,
+            "ffn_bias": ffn_bias,
+            "patch_embed": patch_embed,
+            "aa_order": aa_order,
+            "aa_block_size": aa_block_size,
+            "qk_norm": qk_norm,
+            "rope_freq": rope_freq,
+            "init_values": init_values,
+        }
+
     def __build_patch_embed__(
         self,
         patch_embed,
