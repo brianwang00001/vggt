@@ -48,6 +48,13 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             patch_size=patch_size,
         )
 
+        # add: save init kwargs
+        self.init_kwargs = {
+            "img_size": img_size,
+            "patch_size": patch_size,
+            "embed_dim": embed_dim,
+        }
+
     def forward(
         self,
         images: torch.Tensor,

@@ -76,7 +76,9 @@ class Aggregator(nn.Module):
         )
 
         # Initialize rotary position embedding if frequency > 0
-        self.rope = RotaryPositionEmbedding2D(frequency=rope_freq) if rope_freq > 0 else None
+        self.rope = (
+            RotaryPositionEmbedding2D(frequency=rope_freq) if rope_freq > 0 else None
+        )
         self.position_getter = PositionGetter() if self.rope is not None else None
 
         self.frame_blocks = nn.ModuleList(
@@ -129,7 +131,9 @@ class Aggregator(nn.Module):
         # Note: We have two camera tokens, one for the first frame and one for the rest
         # The same applies for register tokens
         self.camera_token = nn.Parameter(torch.randn(1, 2, 1, embed_dim))
-        self.register_token = nn.Parameter(torch.randn(1, 2, num_register_tokens, embed_dim))
+        self.register_token = nn.Parameter(
+            torch.randn(1, 2, num_register_tokens, embed_dim)
+        )
 
         # The patch tokens start after the camera and register tokens
         self.patch_start_idx = 1 + num_register_tokens
@@ -190,7 +194,10 @@ class Aggregator(nn.Module):
 
         if "conv" in patch_embed:
             self.patch_embed = PatchEmbed(
-                img_size=img_size, patch_size=patch_size, in_chans=3, embed_dim=embed_dim
+                img_size=img_size,
+                patch_size=patch_size,
+                in_chans=3,
+                embed_dim=embed_dim,
             )
         else:
             vit_models = {
@@ -263,12 +270,24 @@ class Aggregator(nn.Module):
             # so set pos to 0 for the special tokens
             pos = pos + 1
             pos_special = (
-                torch.zeros(B * S, self.patch_start_idx, 2).to(images.device).to(pos.dtype)
+                torch.zeros(B * S, self.patch_start_idx, 2)
+                .to(images.device)
+                .to(pos.dtype)
             )
             pos = torch.cat([pos_special, pos], dim=1)
 
         # update P because we added special tokens
         _, P, C = tokens.shape
+
+        # add: pass token shapes into global blocks
+        token_shape = {
+            "B": B,
+            "S": S,
+            "P": P,
+            "C": C,
+            "H": H // self.patch_size,  # height of the patch tokens
+            "W": W // self.patch_size,  # width of the patch tokens
+        }
 
         frame_idx = 0
         global_idx = 0
@@ -279,12 +298,23 @@ class Aggregator(nn.Module):
         for layer_idx in range(self.aa_block_num):
             for attn_type in self.aa_order:
                 if attn_type == "frame":
-                    tokens, frame_idx, frame_intermediates = self._process_frame_attention(
-                        tokens, B, S, P, C, frame_idx, pos=pos
+                    tokens, frame_idx, frame_intermediates = (
+                        self._process_frame_attention(
+                            tokens, B, S, P, C, frame_idx, pos=pos
+                        )
                     )
                 elif attn_type == "global":
-                    tokens, global_idx, global_intermediates = self._process_global_attention(
-                        tokens, B, S, P, C, global_idx, pos=pos
+                    tokens, global_idx, global_intermediates = (
+                        self._process_global_attention(
+                            tokens,
+                            B,
+                            S,
+                            P,
+                            C,
+                            global_idx,
+                            pos=pos,
+                            token_shape=token_shape,
+                        )
                     )
                 else:
                     raise ValueError(f"Unknown attention type: {attn_type}")
@@ -322,7 +352,9 @@ class Aggregator(nn.Module):
 
         return tokens, frame_idx, intermediates
 
-    def _process_global_attention(self, tokens, B, S, P, C, global_idx, pos=None):
+    def _process_global_attention(
+        self, tokens, B, S, P, C, global_idx, pos=None, **kwargs
+    ):
         """
         Process global attention blocks. We keep tokens in shape (B, S*P, C).
         """
@@ -336,7 +368,7 @@ class Aggregator(nn.Module):
 
         # by default, self.aa_block_size=1, which processes one block at a time
         for _ in range(self.aa_block_size):
-            tokens = self.global_blocks[global_idx](tokens, pos=pos)
+            tokens = self.global_blocks[global_idx](tokens, pos=pos, **kwargs)
             global_idx += 1
             intermediates.append(tokens.view(B, S, P, C))
 
